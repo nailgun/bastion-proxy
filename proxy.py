@@ -1,149 +1,131 @@
-from twisted.web import proxy, http
-from twisted.internet import reactor
+"""
+Bastion proxy to connect to other proxies via it.
+
+Based on https://raw.githubusercontent.com/fmoo/twisted-connect-proxy/master/server.py
+
+Thanks to Peter Ruibal for Twisted HTTPS proxy support.
+"""
+
+import base64
+
+from twisted.internet.protocol import ClientFactory
+from twisted.web.proxy import Proxy, ProxyRequest, HTTPClient
 from twisted.python import log
 
-import urlparse, base64
-from twisted.web.http import HTTPClient, Request, HTTPChannel
-from twisted.internet.protocol import ClientFactory
 
-import sys
-log.startLogging(sys.stdout)
-
-
-class MyProxyClient(HTTPClient):
-    """
-    Used by ProxyClientFactory to implement a simple web proxy.
-
-    @ivar _finished: A flag which indicates whether or not the original request
-        has been finished yet.
-    """
-    _finished = False
-
-    def __init__(self, method, uri, version, headers, data, father):
-        self.father = father
-        self.method = method
-        self.uri = uri
-        self.headers = headers
-        self.data = data
-
-    def connectionMade(self):
-        self.sendCommand(self.method, self.uri)
-        for header, value in self.headers.items():
-            self.sendHeader(header, value)
-        self.endHeaders()
-        self.transport.write(self.data)
-
-    def handleStatus(self, version, code, message):
-        self.father.setResponseCode(int(code), message)
-
-    def handleHeader(self, key, value):
-        # t.web.server.Request sets default values for these headers in its
-        # 'process' method. When these headers are received from the remote
-        # server, they ought to override the defaults, rather than append to
-        # them.
-        if key.lower() in ['server', 'date', 'content-type']:
-            self.father.responseHeaders.setRawHeaders(key, [value])
-        else:
-            self.father.responseHeaders.addRawHeader(key, value)
-
-    def handleResponsePart(self, buffer):
-        self.father.write(buffer)
-
-    def handleResponseEnd(self):
-        """
-        Finish the original request, indicating that the response has been
-        completely written to it, and disconnect the outgoing transport.
-        """
-        if not self._finished:
-            self._finished = True
-            self.father.finish()
-            self.transport.loseConnection()
-
-
-
-class MyProxyClientFactory(ClientFactory):
-    """
-    Used by ProxyRequest to implement a simple web proxy.
-    """
-    protocol = MyProxyClient
-
-    def __init__(self, method, uri, version, headers, data, father):
-        self.father = father
-        self.method = method
-        self.uri = uri
-        self.headers = headers
-        self.data = data
-        self.version = version
-
-    def buildProtocol(self, addr):
-        return self.protocol(self.method, self.uri, self.version,
-                             self.headers, self.data, self.father)
-
-    def clientConnectionFailed(self, connector, reason):
-        """
-        Report a connection failure in a response to the incoming request as
-        an error.
-        """
-        self.father.setResponseCode(501, 'Gateway error')
-        self.father.responseHeaders.addRawHeader('Content-Type', 'text/html')
-        self.father.write('<h1>Could not connect</h1>')
-        self.father.finish()
-
-
-
-class MyProxyRequest(Request):
-    def __init__(self, channel, queued, reactor=reactor):
-        Request.__init__(self, channel, queued)
-        self.reactor = reactor
-
+class ConnectProxyRequest(ProxyRequest):
     def process(self):
         headers = self.getAllHeaders().copy()
 
         try:
-            upstreamProxy = headers.pop('x-upstream-proxy')
+            upstream_proxy = headers.pop('x-upstream-proxy')
         except KeyError:
-            self.setResponseCode(501, 'Gateway error')
-            self.responseHeaders.addRawHeader('Content-Type', 'text/html')
-            self.write('<h1>Missing X-Upstream-Proxy header</h1>')
-            self.finish()
-            return
+            return self.fail('Gateway error', 'Missing X-Upstream-Proxy header')
 
-        if '@' in upstreamProxy:
-            upstreamProxyAuth, upstreamProxyHost = upstreamProxy.split('@', 1)
+        if '@' in upstream_proxy:
+            upstream_proxy_auth, upstream_proxy_host = upstream_proxy.split('@', 1)
         else:
-            upstreamProxyHost = upstreamProxy
-            upstreamProxyAuth = None
+            upstream_proxy_host = upstream_proxy
+            upstream_proxy_auth = None
 
-        if ':' in upstreamProxyHost:
-            upstreamProxyHost, upstreamProxyPort = upstreamProxyHost.split(':', 1)
-            upstreamProxyPort = int(upstreamProxyPort)
+        if ':' in upstream_proxy_host:
+            upstream_proxy_host, upstream_proxy_port = upstream_proxy_host.split(':', 1)
+            upstream_proxy_port = int(upstream_proxy_port)
         else:
-            upstreamProxyPort = 8080
+            upstream_proxy_port = 8080
 
-        headers['proxy-connection'] = 'close'
-        if upstreamProxyAuth:
-            headers['proxy-authorization'] = 'Basic ' + base64.b64encode(upstreamProxyAuth)
+        # headers['proxy-connection'] = 'close'
+        if upstream_proxy_auth:
+            headers['proxy-authorization'] = 'Basic ' + base64.b64encode(upstream_proxy_auth)
 
-        self.content.seek(0, 0)
-        data = self.content.read()
+        client_factory = ConnectProxyClientFactory(self.method, self.uri, headers, self)
+        self.reactor.connectTCP(upstream_proxy_host, upstream_proxy_port, client_factory)
 
-        clientFactory = MyProxyClientFactory(self.method, self.uri, self.clientproto, headers, data, self)
-        self.reactor.connectTCP(upstreamProxyHost, upstreamProxyPort, clientFactory)
-
-
-class MyProxy(HTTPChannel):
-    requestFactory = MyProxyRequest
-
-
-class MyProxyFactory(http.HTTPFactory):
-    protocol = MyProxy
+    def fail(self, message, body):
+        self.setResponseCode(501, message)
+        self.responseHeaders.addRawHeader('Content-Type', 'text/html')
+        self.write(body)
+        self.finish()
 
 
-# TODO: unite with https://github.com/fmoo/twisted-connect-proxy/blob/master/server.py
-# to support https
+class ConnectProxy(Proxy):
+    requestFactory = ConnectProxyRequest
+    connectedRemote = None
 
-# tmp: https://github.com/abhinavsingh/proxy.py/blob/develop/proxy.py
+    def requestDone(self, request):
+        if self.connectedRemote is not None:
+            self.connectedRemote.connectedClient = self
+        else:
+            Proxy.requestDone(self, request)
 
-reactor.listenTCP(8080, MyProxyFactory())
-#endpoints.serverFromString(reactor, 'tcp:8080').listen(ProxyFactory())
-reactor.run()
+    def connectionLost(self, reason):
+        if self.connectedRemote is not None:
+            self.connectedRemote.transport.loseConnection()
+        Proxy.connectionLost(self, reason)
+
+    def dataReceived(self, data):
+        if self.connectedRemote is None:
+            Proxy.dataReceived(self, data)
+        else:
+            # Once proxy is connected, forward all bytes received
+            # from the original client to the remote server.
+            self.connectedRemote.transport.write(data)
+
+
+class ConnectProxyClient(HTTPClient):
+    connectedClient = None
+
+    def __init__(self, method, uri, headers):
+        self.method = method
+        self.uri = uri
+        self.headers = headers
+
+    def connectionMade(self):
+        self.factory.request.channel.connectedRemote = self
+        self.sendCommand(self.method, self.uri)
+        for header, value in self.headers.items():
+            self.sendHeader(header, value)
+        self.endHeaders()
+        self.factory.request.startedWriting = True
+        self.factory.request.finish()
+
+    def connectionLost(self, reason):
+        if self.connectedClient is not None:
+            self.connectedClient.transport.loseConnection()
+
+    def dataReceived(self, data):
+        if self.connectedClient is not None:
+            # Forward all bytes from the remote server back to the
+            # original connected client
+            self.connectedClient.transport.write(data)
+        else:
+            log.msg('UNEXPECTED DATA RECEIVED:', data)
+
+
+class ConnectProxyClientFactory(ClientFactory):
+    protocol = ConnectProxyClient
+
+    def __init__(self, method, uri, headers, request):
+        self.request = request
+        self.method = method
+        self.uri = uri
+        self.headers = headers
+
+    def clientConnectionFailed(self, connector, reason):
+        self.request.fail('Gateway Error', str(reason))
+
+    def buildProtocol(self, addr):
+        p = self.protocol(self.method, self.uri, self.headers)
+        p.factory = self
+        return p
+
+
+if __name__ == '__main__':
+    import sys
+    log.startLogging(sys.stderr)
+
+    import twisted.web.http
+    factory = twisted.web.http.HTTPFactory()
+    factory.protocol = ConnectProxy
+    twisted.internet.reactor.listenTCP(8080, factory)
+    twisted.internet.reactor.run()
