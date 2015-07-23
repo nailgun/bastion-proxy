@@ -117,18 +117,28 @@ class ConnectProxyClientFactory(ClientFactory):
 
 
 if __name__ == '__main__':
-    import logging
-    logging.basicConfig(level='NOTSET', format='%(message)s')
-    observer = log.PythonLoggingObserver(loggerName='proxy')
-    observer.start()
-
     import argparse
     ap = argparse.ArgumentParser(prog='bastion-proxy',
                                  description="Bastion proxy to connect to other proxies via it.",
                                  version=__version__,
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    ap.add_argument('--port', default=8080, type=int, help='Listen port')
+    ap.add_argument('--port', default=8080, type=int, help='listen port')
+    ap.add_argument('--syslog', action='store_true', help='log to syslog instead of stderr')
     args = ap.parse_args()
+
+    import logging
+    import logging.handlers
+    if args.syslog:
+        log_handler = logging.handlers.SysLogHandler()
+        log_formatter = logging.Formatter()
+    else:
+        log_handler = logging.StreamHandler()
+        log_formatter = logging.Formatter('%(asctime)s %(levelname)s  %(message)s')
+    log_handler.setFormatter(log_formatter)
+    logging.root.addHandler(log_handler)
+    logging.root.setLevel(logging.NOTSET)
+    observer = log.PythonLoggingObserver(loggerName='bastion')
+    observer.start()
 
     import twisted.web.http
     factory = twisted.web.http.HTTPFactory()
