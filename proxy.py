@@ -22,7 +22,7 @@ class ConnectProxyRequest(ProxyRequest):
         try:
             upstream_proxy = headers.pop('x-upstream-proxy')
         except KeyError:
-            return self.fail('Gateway error', 'Missing X-Upstream-Proxy header')
+            return self.fail('Invalid request', 'Missing X-Upstream-Proxy header', status=400)
 
         if '@' in upstream_proxy:
             upstream_proxy_auth, upstream_proxy_host = upstream_proxy.split('@', 1)
@@ -43,8 +43,8 @@ class ConnectProxyRequest(ProxyRequest):
         client_factory = ConnectProxyClientFactory(self.method, self.uri, headers, self)
         self.reactor.connectTCP(upstream_proxy_host, upstream_proxy_port, client_factory)
 
-    def fail(self, message, body):
-        self.setResponseCode(501, message)
+    def fail(self, message, body, status=501):
+        self.setResponseCode(status, message)
         self.responseHeaders.addRawHeader('Content-Type', 'text/html')
         self.write(body)
         self.finish()
