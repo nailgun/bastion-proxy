@@ -5,15 +5,15 @@ Based on https://raw.githubusercontent.com/fmoo/twisted-connect-proxy/master/ser
 
 Thanks to Peter Ruibal for Twisted HTTPS proxy support.
 """
-
+from __future__ import division, absolute_import
 __version__ = '1.0.0'
-
 
 import base64
 
 from twisted.internet.protocol import ClientFactory
 from twisted.web.proxy import Proxy, ProxyRequest, HTTPClient
 from twisted.python import log
+
 
 class ConnectProxyRequest(ProxyRequest):
     def process(self):
@@ -116,7 +116,7 @@ class ConnectProxyClientFactory(ClientFactory):
         return p
 
 
-if __name__ == '__main__':
+def main():
     import argparse
     ap = argparse.ArgumentParser(prog='bastion-proxy',
                                  description="Bastion proxy to connect to other proxies via it.",
@@ -146,3 +146,7 @@ if __name__ == '__main__':
     factory.noisy = False
     twisted.internet.reactor.listenTCP(args.port, factory)
     twisted.internet.reactor.run()
+
+
+if __name__ == '__main__':
+    main()
