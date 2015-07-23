@@ -20,25 +20,18 @@ class ConnectProxyRequest(ProxyRequest):
         headers = self.getAllHeaders().copy()
 
         try:
-            upstream_proxy = headers.pop('x-upstream-proxy')
+            auth_string = headers.pop('proxy-authorization')
         except KeyError:
-            return self.fail('Invalid request', 'Missing X-Upstream-Proxy header', status=400)
+            return self.fail('Invalid request', 'Missing Proxy-Authorization header', status=400)
 
-        if '@' in upstream_proxy:
-            upstream_proxy_auth, upstream_proxy_host = upstream_proxy.split('@', 1)
-        else:
-            upstream_proxy_host = upstream_proxy
-            upstream_proxy_auth = None
+        auth_method, upstream_proxy = auth_string.split(' ', 1)
+        if auth_method.lower() != 'basic':
+            return self.fail('Invalid request', 'Invalid auth method', status=400)
 
-        if ':' in upstream_proxy_host:
-            upstream_proxy_host, upstream_proxy_port = upstream_proxy_host.split(':', 1)
-            upstream_proxy_port = int(upstream_proxy_port)
-        else:
-            upstream_proxy_port = 8080
-
-        # headers['proxy-connection'] = 'close'
-        if upstream_proxy_auth:
-            headers['proxy-authorization'] = 'Basic ' + base64.b64encode(upstream_proxy_auth)
+        upstream_proxy = base64.b64decode(upstream_proxy)
+        upstream_proxy_host, upstream_proxy_port, upstream_proxy_auth = upstream_proxy.split(',')
+        upstream_proxy_port = int(upstream_proxy_port)
+        headers['proxy-authorization'] = 'Basic ' + base64.b64encode(upstream_proxy_auth)
 
         client_factory = ConnectProxyClientFactory(self.method, self.uri, headers, self)
         self.reactor.connectTCP(upstream_proxy_host, upstream_proxy_port, client_factory)
