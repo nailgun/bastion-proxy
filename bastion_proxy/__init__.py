@@ -6,7 +6,7 @@ Based on https://raw.githubusercontent.com/fmoo/twisted-connect-proxy/master/ser
 Thanks to Peter Ruibal for Twisted HTTPS proxy support.
 """
 from __future__ import division, absolute_import
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 import base64
 
@@ -124,13 +124,17 @@ def main():
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     ap.add_argument('--port', default=8080, type=int, help='listen port')
     ap.add_argument('--syslog', action='store_true', help='log to syslog instead of stderr')
+    ap.add_argument('--syslog-address', help='syslog socket address')
     args = ap.parse_args()
 
     import logging
     import logging.handlers
     if args.syslog:
-        log_handler = logging.handlers.SysLogHandler()
-        log_formatter = logging.Formatter()
+        if args.syslog_address:
+            log_handler = logging.handlers.SysLogHandler(address=args.syslog_address)
+        else:
+            log_handler = logging.handlers.SysLogHandler()
+        log_formatter = None
     else:
         log_handler = logging.StreamHandler()
         log_formatter = logging.Formatter('%(asctime)s %(levelname)s  %(message)s')
