@@ -6,12 +6,14 @@ Based on https://raw.githubusercontent.com/fmoo/twisted-connect-proxy/master/ser
 Thanks to Peter Ruibal for Twisted HTTPS proxy support.
 """
 
+__version__ = '1.0.0'
+
+
 import base64
 
 from twisted.internet.protocol import ClientFactory
 from twisted.web.proxy import Proxy, ProxyRequest, HTTPClient
 from twisted.python import log
-
 
 class ConnectProxyRequest(ProxyRequest):
     def process(self):
@@ -104,6 +106,7 @@ class ConnectProxyClient(HTTPClient):
 
 class ConnectProxyClientFactory(ClientFactory):
     protocol = ConnectProxyClient
+    noisy = False
 
     def __init__(self, method, uri, headers, request):
         self.request = request
@@ -121,11 +124,22 @@ class ConnectProxyClientFactory(ClientFactory):
 
 
 if __name__ == '__main__':
-    import sys
-    log.startLogging(sys.stderr)
+    import logging
+    logging.basicConfig(level='NOTSET', format='%(message)s')
+    observer = log.PythonLoggingObserver(loggerName='proxy')
+    observer.start()
+
+    import argparse
+    ap = argparse.ArgumentParser(prog='bastion-proxy',
+                                 description="Bastion proxy to connect to other proxies via it.",
+                                 version=__version__,
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    ap.add_argument('--port', default=8080, type=int, help='Listen port')
+    args = ap.parse_args()
 
     import twisted.web.http
     factory = twisted.web.http.HTTPFactory()
     factory.protocol = ConnectProxy
-    twisted.internet.reactor.listenTCP(8080, factory)
+    factory.noisy = False
+    twisted.internet.reactor.listenTCP(args.port, factory)
     twisted.internet.reactor.run()
