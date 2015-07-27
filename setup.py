@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='bastion-proxy',
-    version='1.1.0',
+    version='1.1.1',
     description='Bastion proxy to connect to other proxies via it.',
     url='https://github.com/nailgun/bastion-proxy',
     author='Nailgun',

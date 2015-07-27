@@ -6,7 +6,7 @@ Based on https://raw.githubusercontent.com/fmoo/twisted-connect-proxy/master/ser
 Thanks to Peter Ruibal for Twisted HTTPS proxy support.
 """
 from __future__ import division, absolute_import
-__version__ = '1.1.0'
+__version__ = '1.1.1'
 
 import base64
 
@@ -37,10 +37,13 @@ class ConnectProxyRequest(ProxyRequest):
         self.reactor.connectTCP(upstream_proxy_host, upstream_proxy_port, client_factory)
 
     def fail(self, message, body, status=501):
-        self.setResponseCode(status, message)
-        self.responseHeaders.addRawHeader('Content-Type', 'text/html')
-        self.write(body)
-        self.finish()
+        if not self._disconnected:
+            self.setResponseCode(status, message)
+            self.responseHeaders.addRawHeader('Content-Type', 'text/html')
+            self.write(body)
+            self.finish()
+        else:
+            self.notifyFinish()
 
 
 class ConnectProxy(Proxy):
