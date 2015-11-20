@@ -6,13 +6,13 @@ Based on https://raw.githubusercontent.com/fmoo/twisted-connect-proxy/master/ser
 Thanks to Peter Ruibal for Twisted HTTPS proxy support.
 """
 from __future__ import division, absolute_import
-__version__ = '1.1.1'
-
 import base64
 
 from twisted.internet.protocol import ClientFactory
 from twisted.web.proxy import Proxy, ProxyRequest, HTTPClient
 from twisted.python import log
+
+__version__ = '1.1.1'
 
 
 class ConnectProxyRequest(ProxyRequest):
@@ -79,6 +79,8 @@ class ConnectProxyClient(HTTPClient):
         self.headers = headers
 
     def connectionMade(self):
+        if self.factory.request.channel is None:
+            return
         self.factory.request.channel.connectedRemote = self
         self.sendCommand(self.method, self.uri)
         for header, value in self.headers.items():
